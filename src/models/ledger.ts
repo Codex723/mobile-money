@@ -32,6 +32,7 @@ export interface LedgerEntryRecord {
   posted_by: string | null;
   metadata: Record<string, any>;
   created_at: Date;
+  settlement_date: Date;
 }
 
 export class LedgerModel {
@@ -209,6 +210,28 @@ export class LedgerModel {
       [accountCode]
     );
     return result.rows[0]?.balance || 0;
+  }
+
+  /**
+   * Get available account balance (settled funds)
+   */
+  async getAvailableAccountBalance(accountCode: string): Promise<number> {
+    const result = await this.pool.query(
+      'SELECT get_available_balance($1) as balance',
+      [accountCode]
+    );
+    return parseFloat(result.rows[0]?.balance || 0);
+  }
+
+  /**
+   * Get pending account balance (unsettled funds)
+   */
+  async getPendingAccountBalance(accountCode: string): Promise<number> {
+    const result = await this.pool.query(
+      'SELECT get_pending_balance($1) as balance',
+      [accountCode]
+    );
+    return parseFloat(result.rows[0]?.balance || 0);
   }
 
   /**
