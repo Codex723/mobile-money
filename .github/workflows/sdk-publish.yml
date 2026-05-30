@@ -87,7 +87,10 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-jwt-secret-32-chars-long-placeholder
           SESSION_SECRET: ci-session-secret-placeholder
-          STELLAR_ISSUER_SECRET: SCZANGBA5YHTNYVVV3C7CAZMCLPVAR3LXKLHEADMPROMU3QAHZGOSN6A
+          # Dummy value — not a real key. Matches the pattern used across all
+          # other CI workflows. The server only needs this env var to start;
+          # no real Stellar transactions are submitted during spec generation.
+          STELLAR_ISSUER_SECRET: S-DUMMY-SECRET-KEY-FOR-TESTING-PURPOSES-ONLY
 
       - name: Wait for API to be ready
         run: npx wait-on http://127.0.0.1:3000/health --timeout 30000
@@ -198,7 +201,10 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-jwt-secret-32-chars-long-placeholder
           SESSION_SECRET: ci-session-secret-placeholder
-          STELLAR_ISSUER_SECRET: SCZANGBA5YHTNYVVV3C7CAZMCLPVAR3LXKLHEADMPROMU3QAHZGOSN6A
+          # Dummy value — not a real key. Matches the pattern used across all
+          # other CI workflows. The server only needs this env var to start;
+          # no real Stellar transactions are submitted during spec generation.
+          STELLAR_ISSUER_SECRET: S-DUMMY-SECRET-KEY-FOR-TESTING-PURPOSES-ONLY
 
       - name: Wait for API to be ready
         run: npx wait-on http://127.0.0.1:3000/health --timeout 30000
