@@ -23,6 +23,7 @@ import { geolocateMiddleware } from "../../middleware/geolocate";
 import { geoFencingMiddleware } from "../../middleware/geoFencing";
 import { createExportRoutes } from "../export";
 
+
 export const transactionRoutesV1 = Router();
 transactionRoutesV1.use(createExportRoutes());
 

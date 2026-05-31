@@ -1,5 +1,6 @@
 // Initialize centralized configuration first
 import "./config/init";
+import "./config/init";
 
 import "./tracer";
 import path from "path";
@@ -34,8 +35,19 @@ import { transactionDisputeRoutes, disputeRoutes } from "./routes/disputes";
 import { statsRoutes } from "./routes/stats";
 import { contactsRoutes } from "./routes/contacts";
 import { reportsRoutes } from "./routes/reports";
+import { statementsRoutes } from "./routes/statements";
+import feesRoutes from "./routes/fees";
+import stellarRoutes from "./routes/stellar";
+import htlcRoutes from "./routes/htlc";
+import { createKYCRoutes } from "./routes/kycRoutes";
+import { vaultRoutes } from "./routes/vaults";
+import { adminRoutes } from "./routes/admin";
+import kycTierUpgradeRoutes from "./routes/kycTierUpgradeRoutes";
+import { makerCheckerRoutes } from "./routes/makerChecker";
+import { userRoutes } from "./routes/users";
+import { auditRoutes } from "./routes/audit";
+import { createError, errorHandler } from "./middleware/errorHandler";
 import { accountingRoutes } from "./routes/accounting";
-import { errorHandler } from "./middleware/errorHandler";
 import {
   connectRedis,
   disconnectRedis,
@@ -80,16 +92,13 @@ import accountingReconciliationRoutes from "./routes/accountingReconciliation";
 import exchangeRateBufferRoutes from "./routes/exchangeRateBuffers";
 import adminAssetRoutes from "./routes/admin/assets";
 import settingsRoutes from "./routes/settings";
-import merchantWebhooksRouter from "./routes/merchantWebhooks";
-import accountingRoutes from "./routes/accounting";
-
-
-
 
 // 1. Import Sentry Middleware
 import { initSentry, sentryBreadcrumbMiddleware } from "./middleware/sentry";
 import { WebSocketManager } from "./websocket";
 import { layeredCache } from "./services/layeredCache";
+import { ERROR_CODES } from "./constants/errorCodes";
+import { startApolloServer } from "./graphql/server";
 
 dotenv.config();
 
@@ -172,7 +181,7 @@ app.use(i18nMiddleware);
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (isShuttingDown) {
     res.setHeader("Connection", "close");
-    return res.status(503).json({
+    throw createError(ERROR_CODES.SERVICE_UNAVAILABLE, "Service Unavailable", {
       error: "Service Unavailable",
       message: "Server is shutting down. Please retry shortly.",
     });
@@ -365,7 +374,40 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/contacts", contactsRoutes);
 app.use("/api/mtn", mtnCallbacksRouter);
 app.use("/api/reports", reportsRoutes);
-app.use("/api/accounting", accountingRoutes);
+app.use("/api/fees", feesRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/kyc", createKYCRoutes(pool));
+app.use("/api/fees", feesRouter);
+app.use("/api/fee-strategies", feeStrategiesRouter);
+app.use("/api/cross-chain", crossChainRouter);
+app.use("/api/reconciliation", reconciliationRoutes);
+app.use("/api/exchange-rate-buffers", exchangeRateBufferRoutes);
+app.use("/api/admin/assets", adminAssetRoutes);
+app.use("/api/settings", settingsRoutes);
+
+// GDPR
+app.use("/api/gdpr", privacyRoutes);
+app.use("/api/developer", developerDashboardRoutes);
+app.use("/api/admin", requireAuth, adminRoutes);
+app.use("/api/admin/providers/status", requireAuth, providerStatusRouter);
+app.use("/api/admin/kyc-upgrades", requireAuth, kycTierUpgradeRoutes);
+app.use("/api/admin/auth", createAdminSep10Router());
+app.use("/sep10", createSep10Router());
+app.use("/sep31", sep31Router);
+app.use("/sep24", sep24Router);
+app.use("/sep38", sep38Router);
+app.use("/sep12", createSep12Router(pool));
+app.use("/.well-known/stellar.toml", tomlRouter);
+
+// Prometheus Metrics Scraper Endpoint
+app.get("/metrics", async (req: Request, res: Response) => {
+  try {
+    res.set("Content-Type", register.contentType);
+    res.end(await register.metrics());
+  } catch (ex) {
+    res.status(500).end(String(ex));
+  }
+});
 
 app.use(
   (
@@ -375,7 +417,7 @@ app.use(
     next: NextFunction,
   ) => {
     if (err.type === "entity.too.large") {
-      return res.status(413).json({
+      throw createError(ERROR_CODES.LIMIT_EXCEEDED, "Payload Too Large", {
         error: "Payload Too Large",
         message: `Request exceeds the maximum size of ${process.env.REQUEST_SIZE_LIMIT || "10mb"}`,
       });
