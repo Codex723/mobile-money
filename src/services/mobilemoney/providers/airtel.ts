@@ -4,9 +4,9 @@ import axios, {
   AxiosRequestConfig,
   AxiosResponse,
 } from "axios";
-import * as fs from "fs";
-import * as path from "path";
+
 import logger from "../../../utils/logger";
+import { maskPII } from "../../../utils/masking";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -246,7 +246,7 @@ export class AirtelService {
   ) {
     const log = requestId ? logger.child({ requestId }) : logger;
     log.info(
-      { phoneNumber, amount, mode: this.mode },
+      maskPII({ phoneNumber, amount, mode: this.mode }),
       "Airtel: Requesting payment",
     );
     const startTime = Date.now();
@@ -278,7 +278,7 @@ export class AirtelService {
 
       const duration = Date.now() - startTime;
       log.info(
-        { duration, success: response.success },
+        maskPII({ duration, success: response.success }),
         "Airtel: Payment request completed",
       );
 
@@ -290,7 +290,7 @@ export class AirtelService {
     } catch (error: any) {
       const duration = Date.now() - startTime;
       log.error(
-        { duration, error: error.message },
+        maskPII({ duration, error: error.message }),
         "Airtel: Payment request failed",
       );
       return {
@@ -304,7 +304,7 @@ export class AirtelService {
   async sendPayout(phoneNumber: string, amount: string, requestId?: string) {
     const log = requestId ? logger.child({ requestId }) : logger;
     log.info(
-      { phoneNumber, amount, mode: this.mode },
+      maskPII({ phoneNumber, amount, mode: this.mode }),
       "Airtel: Sending payout",
     );
     const startTime = Date.now();
@@ -331,7 +331,7 @@ export class AirtelService {
 
       const duration = Date.now() - startTime;
       log.info(
-        { duration, success: response.success },
+        maskPII({ duration, success: response.success }),
         "Airtel: Payout completed",
       );
 
@@ -342,7 +342,10 @@ export class AirtelService {
       };
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      log.error({ duration, error: error.message }, "Airtel: Payout failed");
+      log.error(
+        maskPII({ duration, error: error.message }),
+        "Airtel: Payout failed",
+      );
       return {
         success: false,
         error,
@@ -1157,37 +1160,19 @@ export class AirtelService {
     return session;
   }
 
-  private persistSession(session: AirtelSessionState): void {
-    if (!this.config.sessionStorePath) return;
-
-    try {
-      const dir = path.dirname(this.config.sessionStorePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      fs.writeFileSync(
-        this.config.sessionStorePath,
-        JSON.stringify(session, null, 2),
-        "utf-8",
-      );
-    } catch (error) {
-      logger.warn(
-        { error, path: this.config.sessionStorePath },
-        "Failed to persist Airtel session",
-      );
-    }
+  private persistSession(_session: AirtelSessionState): void {
+    // Session tokens contain sensitive authentication credentials.
+    // Writing them to the local filesystem (sessionStorePath) would create
+    // unencrypted secrets on disk, violating the memory-only security policy.
+    // The session is already held in memory via this.session; for cross-process
+    // persistence use an encrypted store such as Redis instead.
   }
 
   private loadSession(): AirtelSessionState | null {
-    if (!this.config.sessionStorePath) return null;
-
-    try {
-      const content = fs.readFileSync(this.config.sessionStorePath, "utf-8");
-      return JSON.parse(content) as AirtelSessionState;
-    } catch {
-      return null;
-    }
+    // Session tokens must not be read from the local filesystem.
+    // The in-memory this.session is the authoritative cache; a fresh
+    // login will be performed when it is absent or expired.
+    return null;
   }
 
   private isSessionExpiredResponse(response: AxiosResponse): boolean {

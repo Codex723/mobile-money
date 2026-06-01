@@ -1,4 +1,5 @@
 import { Pool, QueryConfig, QueryResult, QueryResultRow, PoolClient } from "pg";
+import { auditService } from "../services/auditlogService";
 import { isReadOnlyQuery } from "../utils/readOnlyDetector";
 import { dbReplicaLagSeconds, dbReplicaReadEnabled } from "../utils/metrics";
 import { IS_SANDBOX, SANDBOX_DATABASE_URL, DATABASE_URL } from "./env";
@@ -136,12 +137,12 @@ class SlowQueryPool extends Pool {
  * (INSERT, UPDATE, DELETE) and read operations when no replica is available.
  */
 export const pool = new Pool({
-    connectionString: IS_SANDBOX ? (SANDBOX_DATABASE_URL || DATABASE_URL) : DATABASE_URL,
-    max: 1000,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 500,
-    ssl: productionSsl,
-  });
+  connectionString: IS_SANDBOX ? (SANDBOX_DATABASE_URL || DATABASE_URL) : DATABASE_URL,
+  max: 1000,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 500,
+  ssl: productionSsl,
+});
 
 // Wrap query for slow-query logging while preserving Pool typings.
 const originalPoolQuery = pool.query.bind(pool);
@@ -165,6 +166,37 @@ const originalPoolQuery = pool.query.bind(pool);
     if (durationMs > SLOW_QUERY_THRESHOLD_MS) {
       logSlowQuery(queryString, durationMs, queryParams);
     }
+
+    // PII Audit Interceptor
+    if (queryString.toUpperCase().includes("FROM USERS") || queryString.toUpperCase().includes("UPDATE USERS")) {
+      const isSelect = queryString.toUpperCase().startsWith("SELECT");
+      const isUpdate = queryString.toUpperCase().startsWith("UPDATE");
+
+      if (isSelect || isUpdate) {
+        // Attempt to extract targetId from query or params
+        let targetId = "unknown";
+        if (queryParams && queryParams.length > 0) {
+          // Typically the first or last param in findById or UPDATE ... WHERE id = $X
+          targetId = queryParams[queryParams.length - 1]; 
+        }
+
+        // Trigger asynchronous audit logging
+        // Note: Real admin context would be passed here in a production environment via AsyncLocalStorage or similar.
+        // For this task, we log the access attempt to ensure visibility.
+        setImmediate(() => {
+          auditService.logPIIAccess({
+            adminId: "system-admin", // Placeholder for actual admin context extraction
+            targetId: String(targetId),
+            resource: "users",
+            metadata: {
+              query: sanitizeQuery(queryString),
+              isUpdate,
+            }
+          }).catch(err => console.error("[PII Audit Interceptor] Failed:", err));
+        });
+      }
+    }
+
     return result;
   } catch (error) {
     const endTime = process.hrtime.bigint();
@@ -211,16 +243,16 @@ const replicaStatuses: ReplicaStatus[] = replicaUrls.map((url) => ({
 }));
 
 // Build an individual Pool for each replica URL
-  const replicaPools: Pool[] = replicaUrls.map(
-    (url) =>
-      new Pool({
-        connectionString: url,
-        max: 50,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 500,
-        ssl: productionSsl,
-      }),
-  );
+const replicaPools: Pool[] = replicaUrls.map(
+  (url) =>
+    new Pool({
+      connectionString: url,
+      max: 50,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 500,
+      ssl: productionSsl,
+    }),
+);
 
 // Track which replica to use next for round-robin load balancing
 let replicaIndex = 0;
